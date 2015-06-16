@@ -1,0 +1,134 @@
+#!/bin/bash
+
+# Functions
+function error {
+	echo "Error!"
+	echo "user => rsvh -connect machine user_login"
+	echo "admin => rsvh -admin"
+}
+
+function admin_login { # $1 = admin_user, $2 = password
+
+	echo "Admin authentication process..."
+	authentication=false
+
+	while read login level pass;
+	do
+		if [[ $login == $1 ]] && [[ $pass == $2 ]] && [[ $level -eq 0 ]];then
+			authentication=true
+			break
+		fi
+	done < users
+
+
+	if [ $authentication == true ]; then
+		echo "Login successfull"
+		echo "Hello, Dave"
+		./core 0 $1
+	else
+		exit
+	fi
+}
+
+function user_login { # $1 =  machine, $2 = user
+
+	echo "User authentication process..."
+	authentication=false
+	machine_flag=false
+
+	while read machine level;
+	do
+		if [ $machine == $1 ]; then
+			machine_access_level=$level
+			machine_flag=true
+			break
+		fi
+	done < machines
+
+	if [ ! $machine_flag == true ]; then
+		echo $1": machine not found"
+		exit
+	fi
+
+	while read username access_level password;
+	do
+		if [[ $username == $2 ]]; then
+
+			if [[ $access_level -le $machine_access_level ]]; then
+
+				if [ ! -z  $password ]; then
+
+					user_password=$password
+				fi
+
+				authentication=true
+				break
+
+			fi
+		fi
+
+	done < users
+
+
+	if [ $authentication == true ]; then
+
+		if [ ! -z $user_password ]; then
+			echo "User password: "
+			read -s pass
+			if [ $user_password == $pass ]; then
+				echo "Login successfull"
+				echo "Hello, Dave"
+				./core 1 $2 $1
+			else
+				echo "Wrong password"
+				exit
+			fi
+		else
+			echo "Login successfull"
+			echo "Hello, Dave"
+			./core 1 $2 $1
+		fi
+	else
+		echo "Login failed"
+		exit
+	fi
+
+}
+
+# Main
+if [[ ! -f users ]] && [[ ! -f machines ]] && [[ ! -f core ]]; then # && = and || = or 
+
+  echo "Error - missing files"
+  echo "Server shuting down"
+
+else
+
+    if [[ $# -eq 1 && $1 == -admin ]] || [[ $# -eq 3 ]]; then
+
+	   case $1 in
+	      -connect)
+
+		echo "User Interface"
+		user_login $2 $3
+		;;
+
+	      -admin)
+
+		echo "Admin Interface"
+		echo  "Login: "
+		read login
+		echo "Password: "
+		read -s pass
+		echo "Processing..."
+		admin_login $login $pass
+		;;
+
+	      *)
+		error
+	      ;;
+	  esac
+
+     else
+	error
+    fi
+fi
