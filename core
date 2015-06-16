@@ -1,0 +1,365 @@
+#!/bin/bash
+# $1 (1-user or 0-admin) $2 username $3 machine
+user=$2
+machine=$3
+display=$(tty)
+
+# Define admin or user and create log
+timestamp=$(date +'%H:%M:%S %d/%m/%Y')
+
+if [ $1 == 0 ]; then
+	pt1=rvsh
+	pt2=""
+	machine=network
+	echo $user $machine $display $timestamp >> log
+	echo $user $machine $display $timestamp >> log_historique
+else
+	pt1=$user
+	pt2=$machine
+	echo $user $machine $display $timestamp >> log_historique
+	echo $user $machine $display $timestamp >> log
+fi
+
+
+#Functions
+
+function who {
+	echo ""
+	awk -v var="$machine" ' BEGIN {}
+	$0 ~ var { print $1 " logged into " $2 " at " $4 " on " $5 }
+	END {} ' log
+}
+function rusers {
+	echo ""
+	awk ' { print $1 " logged into " $2 " at " $4 " on " $5  } ' log
+}
+function rhost {
+	echo ""
+	echo "Machines connected to this network: "
+	awk '{ print $1 }' machines
+}
+function connect {
+	echo ""
+	echo "Available machines: "
+	awk -v var=$machine ' $0 !~ var { print $1 } ' machines
+
+	read -p "Which machine do you want to connect to: " new_machine
+
+	if [ $new_machine == $machine ]; then
+		echo "You're already connected to this machine"
+	else
+		./rvsh -connect $new_machine $user
+	fi
+}
+function passwd {
+	echo ""
+	read -p "New password: " new_pass
+
+	awk -v pass=$new_pass -v user=$user ' BEGIN {}
+	$0 !~ user { print $0 }
+	$0 ~ user { print $1 " " $2 " " pass }
+	END {} ' users > users_temp
+
+	mv users_temp users
+}
+function su {
+	echo ""
+	read -p "Username: " new_user
+
+	if [ $new_user == $user ]; then
+		echo "You're already connected to this machine"
+	else
+		./rvsh -connect $machine $new_user
+	fi
+
+}
+function finger {
+	echo ""
+	awk -v var="$user" -v dsp="$display" -v logtime="$timestamp" ' BEGIN { FS=";" }
+	$0 ~ var { print "\n" "Username: "$1 "\n" "Real name: "$2 "\n"  "Login Time: "logtime "\n" "Tty: "dsp "\n" "City: "$3 "\n" "Phone Number: "$4 "\n" }
+	END {} ' information
+}
+function write {
+#	write user@machine message
+#	$1         $2        $3
+	flag=false
+	m_user=$(echo $2 | cut -d"@" -f 1)
+	m_machine=$(echo $2 | cut -d"@" -f 2)
+
+	while read u m d t;
+	do
+		if [[ $m_user == $u ]] && [[ $m_machine == $m ]]; then
+			flag=true
+			echo "${@: 3}" > $d
+		fi
+
+	done < log
+
+	if [ $flag != true ]; then
+		echo "Message not sent"
+	fi
+
+}
+function host {
+	echo ""
+	echo "Add machine = 0"
+	echo "Delete machine = 1"
+	flag=false
+
+	read -p "Option: " opt
+
+	if [ $opt -eq 0 ]; then
+		echo "Machine name: "
+		read name
+		echo "Access level required to access" $name ":"
+		read level
+
+		while read machine_name a_level;
+		do
+			if [ $machine_name == $name ]; then
+				flag=true
+				break
+			fi
+		done < machines
+
+		if [ $flag == true ]; then
+			echo $name "already exists"
+			echo "Impossible to create two machines with the same name"
+		else
+			echo "Machine" $name "with access level =" $level "was successfully created."
+			echo $name $level >> machines
+		fi
+
+	elif [ $opt -eq 1 ]; then
+		echo "Machine name: "
+		read -s name
+		awk -v var="$name" ' BEGIN {}
+		$0 !~ var { print $0 }
+		END {} ' machines > machines_temp
+
+		mv machines_temp machines
+
+		echo $name "successfully deleted"
+
+	else
+		echo $opt "is an invalid option"
+	fi
+}
+function users {
+	echo ""
+	echo "Add an user = 0"
+	echo "Delete an user = 1"
+
+	flag=false
+
+	read -p "Option: " opt
+
+	if [ $opt -eq 0 ]; then
+		echo "User name: "
+		read name
+		echo "Access level: "
+		read level
+		echo "Password : "
+		read pass
+
+		while read user_login a_level passwrd;
+		do
+			if [ $user_login == $name ]; then
+				flag=true
+				break
+			fi
+		done < users
+
+		if [ $flag == true ]; then
+			echo $name "already exists"
+			echo "Impossible to create two users with the same login"
+		else
+			echo "User:" $name "with access level =" $level "and password: " $pass "was successfully created."
+			echo $name $level $pass >> users
+		fi
+
+	elif [ $opt -eq 1 ]; then
+		echo "User name: "
+		read -s name
+		awk -v var="$name" ' BEGIN {}
+		$0 !~ var { print $0 }
+		END {} ' users > users_temp
+
+		mv users_temp users
+
+		echo $name "successfully deleted"
+
+	else
+		echo $opt "is an invalid option"
+	fi
+
+}
+function afinger {
+	echo ""
+	echo "Change or add user information = 0"
+	echo "Check information on all online users = 1"
+	flag=false
+	read -p "Option: " opt
+
+	if [ $opt -eq 1 ]; then
+
+		while read u m d t
+		do
+
+			awk -v var="$u" -v dsp="$d" -v logtime="$t" ' BEGIN { FS=";" }
+			$0 ~ var { print "\n" "Username: "$1 "\n" "Real name: "$2 "\n"  "Login Time: "logtime "\n" "Tty: "dsp "\n" "City: "$3 "\n" "Phone Number: "$4 "\n" }
+			END {} ' information
+
+
+		done < log
+
+	elif [ $opt -eq 0 ]; then
+		echo "Username: "
+		read name
+		echo "Real Name: "
+		read rname
+		echo "City: "
+		read city
+		echo "Phone Number: "
+		read number
+
+		while IFS=';' read u rn c p
+		do
+			if [ $name == $u ]; then
+				flag=true
+				break
+			fi
+		done < information
+
+		if [ $flag == true ]; then
+			echo "User already exists, information will be overwritten"
+			awk -v vname="$name" -v vrname="$rname" -v vcity="$city" -v vnumber="$number" ' BEGIN { FS=";" }
+			$0 !~ vname { print $0 }
+			$0 ~ vname { print vname";"vrname";"vcity";"vnumber }
+			END {} ' information > information_temp
+
+			mv information_temp information
+
+		else
+			echo $name";"$rname";"$city";"$number >> information
+			echo "User information successfully added."
+		fi
+	else
+		echo $opt "is a invalid option"
+	fi
+
+
+}
+function exit_routine {
+	awk -v var="$timestamp" ' BEGIN{}
+	      $0 !~ var { print $0 }
+	      END{} ' log > log_temp
+
+	mv log_temp log
+	exit
+}
+function clear {
+	./clear
+}
+
+#Prompt
+
+prompt=$pt1"@"$pt2">  "
+echo -n $prompt
+
+# Case functions
+
+while read input
+do
+	if [[ "$input" != "exit" ]]; then
+		echo -n $prompt
+
+		if [[ $1 -eq 0 ]]; then
+
+		   case "$input" in
+			"who")
+			  who
+			;;
+			"rusers")
+			  rusers
+			;;
+			"rhost")
+			  rhost
+			;;
+			"connect")
+			  connect
+			;;
+			"su")
+			  su
+			;;
+			"passwd")
+			  passwd
+			;;
+			"finger")
+			  finger
+			;;
+			"write "*"@"*" "*)
+			  write $input
+			;;
+			"host")
+			  host
+			;;
+			"users")
+			  users
+			;;
+			"afinger")
+			  afinger
+			;;
+			"clear")
+			  clear
+			;;
+			*)
+			  echo ""
+			  echo $input": command not found"
+			  echo ""
+			;;
+		   esac
+
+			echo -n $prompt
+		else
+
+		   case $input in
+			"who")
+			  who
+			;;
+			"rusers")
+			  rusers
+			;;
+			"rhost")
+			  rhost
+			;;
+			"connect")
+			  connect
+			;;
+			"su")
+			  su
+			;;
+			"passwd")
+			  passwd
+			;;
+			"finger")
+			  finger
+			;;
+			"write "*"@"*" "*)
+			  write $input
+			;;
+			"clear")
+			  clear
+			;;
+			*)
+			  echo ""
+			  echo -n $input": command not found"
+			  echo ""
+			;;
+		esac
+			echo -n $prompt
+		fi
+	else
+		exit_routine
+	fi
+done
